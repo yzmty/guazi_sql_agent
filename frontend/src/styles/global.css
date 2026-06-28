@@ -1,0 +1,391 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f5f5f5;
+}
+
+.app-layout {
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-header {
+  flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 12px 20px;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 12px;
+  gap: 12px;
+}
+
+/* V2 three-column layout */
+.app-main-v2 .panel-left {
+  width: 30%;
+  min-width: 300px;
+  max-width: 400px;
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.panel-left-collapsed {
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  align-items: center;
+  padding-top: 8px;
+}
+
+.panel-collapse-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.panel-collapsed-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  color: #888;
+  margin-top: 12px;
+  letter-spacing: 2px;
+}
+
+.panel-collapsed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1677ff;
+  margin-top: 16px;
+}
+
+.panel-header-bar-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.list-scroll-paged {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+.list-pagination {
+  flex-shrink: 0;
+  padding: 8px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: center;
+}
+
+/* SQL list cards */
+.sql-list-card {
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.sql-list-card:last-child {
+  margin-bottom: 0;
+}
+
+.sql-list-card-selected {
+  border-color: #1677ff !important;
+  background: #f0f7ff !important;
+}
+
+.sql-card-title {
+  font-size: 13px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.sql-card-meta-row {
+  margin-bottom: 6px;
+}
+
+.sql-card-meta-label {
+  font-size: 11px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.sql-card-meta-value {
+  line-height: 1.4;
+}
+
+.sql-card-text {
+  margin: 0 !important;
+  font-size: 12px !important;
+  color: #444;
+}
+
+.sql-card-tag {
+  margin-bottom: 2px !important;
+  font-size: 11px !important;
+  line-height: 18px;
+}
+
+.empty-state-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: 16px;
+}
+
+.panel-center {
+  flex: 1;
+  min-width: 280px;
+  min-height: 0;
+  height: 100%;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-center .ant-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-center .ant-tabs-nav {
+  padding: 0 20px;
+  margin-bottom: 0;
+}
+
+.panel-center .ant-tabs-nav::before {
+  left: 20px;
+  right: 20px;
+}
+
+.panel-center .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f0f5ff 0%, #f5f5f5 100%);
+}
+
+.login-card {
+  width: 420px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.execute-panel {
+  padding: 16px 20px;
+}
+
+.panel-left {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  overflow: hidden;
+}
+
+.panel-header-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+  color: #888;
+}
+
+.detail-content {
+  padding: 16px 20px 24px;
+}
+
+.sql-detail-header {
+  margin-bottom: 16px;
+}
+
+.sql-detail-title {
+  margin: 0 0 10px !important;
+  word-break: break-word;
+}
+
+.sql-detail-actions {
+  width: 100%;
+}
+
+.meta-section {
+  margin-bottom: 16px;
+}
+
+.meta-label {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.meta-value {
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+
+.sql-code-block {
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 480px;
+  font-size: 13px;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  padding: 40px;
+  text-align: center;
+}
+
+/* Agent panel — fixed column height, messages scroll inside */
+.panel-agent {
+  width: 32%;
+  min-width: 320px;
+  max-width: 460px;
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  overflow: hidden;
+}
+
+.agent-header {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.agent-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+}
+
+.agent-welcome {
+  padding: 20px 8px;
+  text-align: center;
+}
+
+.agent-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.agent-input-area {
+  flex-shrink: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.agent-input-compact {
+  align-items: stretch;
+}
+
+.agent-input-compact .agent-textarea {
+  flex: 1;
+}
+
+.agent-input-compact .ant-btn {
+  align-self: stretch;
+  min-width: 72px;
+}
+
+.chat-message {
+  margin-bottom: 12px;
+  display: flex;
+}
+
+.chat-message-user {
+  justify-content: flex-end;
+}
+
+.chat-message-assistant {
+  justify-content: flex-start;
+}
+
+.chat-message-bubble {
+  max-width: 95%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-message-user .chat-message-bubble {
+  background: #e6f4ff;
+  border: 1px solid #bae0ff;
+}
+
+.chat-message-assistant .chat-message-bubble {
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
+}
+
+.chat-stream-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #1677ff;
+  animation: chat-cursor-blink 1s step-end infinite;
+}
+
+@keyframes chat-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.agent-card {
+  margin-top: 8px;
+}
+
+.agent-explain-section {
+  margin-bottom: 8px;
+}
