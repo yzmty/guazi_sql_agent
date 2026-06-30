@@ -11,12 +11,10 @@ from sqlalchemy.orm import Session
 from app.models.conversation import Conversation
 from app.services import agent_service
 from app.services.conversation_service import add_message, get_messages
+from app.services.library_scope_service import LibraryScope
 from app.services.llm_service import LlmError, chat_messages, chat_messages_stream, is_llm_configured
-from app.services.retrieval_service import candidates_to_summaries, record_to_full_context
-from app.services.search_service import get_sql_file_by_id
 from app.services.cross_sql_rewrite_service import cross_sql_rewrite
 from app.services.generate_sql_service import generate_sql
-from app.services.semantic_search_service import semantic_search_sql
 
 logger = logging.getLogger(__name__)
 
@@ -43,61 +41,52 @@ def _history_for_llm(db: Session, conversation_id: int) -> list[dict[str, str]]:
     return messages
 
 
-def _build_context(db: Session, user_email: str, message: str, sql_id: int | None) -> str:
-    parts: list[str] = []
-    if sql_id:
-        record = get_sql_file_by_id(db, sql_id, user_email=user_email)
-        if record:
-            ctx = record_to_full_context(record)
-            parts.append(
-                f"当前选中 SQL: id={record.id}, 文件={record.file_name}\n"
-                f"业务={record.business}, 场景={record.scene}\n"
-                f"指标={ctx['metrics']}, 维度={ctx['dimensions']}\n"
-                f"SQL片段:\n{(record.sql_content or '')[:2000]}"
-            )
-
-    candidates = semantic_search_sql(db, message, user_email, top_k=8)
-    if candidates:
-        summaries = candidates_to_summaries(candidates)
-        parts.append("语义检索候选 SQL:\n" + json.dumps(summaries, ensure_ascii=False, indent=2))
-    return "\n\n".join(parts)
-
-
 def _run_structured(
     db: Session,
     user_email: str,
     intent: str,
     message: str,
     sql_id: int | None,
+    library_scope: LibraryScope = "personal",
 ) -> tuple[str, dict]:
     if intent == "find_sql":
-        data = agent_service.find_sql(db, message, user_email=user_email)
+        data = agent_service.find_sql(
+            db, message, user_email=user_email, library_scope=library_scope
+        )
         data["semantic_used"] = True
         return "find_sql", data
     if intent == "explain_sql":
         if not sql_id:
             raise ValueError("请先在左侧选择一个 SQL")
-        return "explain_sql", agent_service.explain_sql(db, sql_id, user_email=user_email)
+        return "explain_sql", agent_service.explain_sql(
+            db, sql_id, user_email=user_email, library_scope=library_scope
+        )
     if intent == "recommend_similar_sql":
         if not sql_id:
             raise ValueError("请先在左侧选择一个 SQL")
         return "recommend_similar_sql", agent_service.recommend_similar_sql(
-            db, sql_id, user_email=user_email
+            db, sql_id, user_email=user_email, library_scope=library_scope
         )
     if intent == "rewrite_sql":
         if not sql_id:
             raise ValueError("请先在左侧选择一个 SQL")
         return "rewrite_sql", agent_service.rewrite_sql(
-            db, sql_id, message, user_email=user_email
+            db, sql_id, message, user_email=user_email, library_scope=library_scope
         )
     if intent == "cross_sql_rewrite":
         if not sql_id:
             raise ValueError("请先在左侧选择一个 SQL")
         return "cross_sql_rewrite", cross_sql_rewrite(
-            db, sql_id, message, user_email=user_email
+            db,
+            sql_id,
+            message,
+            user_email=user_email,
+            library_scope=library_scope,
         )
     if intent == "generate_sql":
-        return "generate_sql", generate_sql(db, message, user_email=user_email)
+        return "generate_sql", generate_sql(
+            db, message, user_email=user_email, library_scope=library_scope
+        )
     raise ValueError(f"unknown intent {intent}")
 
 
@@ -106,6 +95,7 @@ def run_conversation_turn(
     conversation: Conversation,
     message: str,
     current_sql_id: int | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> dict[str, Any]:
     user_email = conversation.user_email
     message = message.strip()
@@ -128,12 +118,18 @@ def run_conversation_turn(
             "cross_sql_rewrite",
             "generate_sql",
         ):
-            mode, data = _run_structured(db, user_email, intent, message, sql_id)
+            mode, data = _run_structured(
+                db, user_email, intent, message, sql_id, library_scope
+            )
         else:
             if not is_llm_configured():
                 raise LlmError("未配置 LLM API Key")
             data = agent_service.free_chat(
-                db, message, user_email=user_email, current_sql_id=sql_id
+                db,
+                message,
+                user_email=user_email,
+                current_sql_id=sql_id,
+                library_scope=library_scope,
             )
             mode = "chat"
     except LlmError as exc:
@@ -155,6 +151,7 @@ def stream_conversation_turn(
     conversation: Conversation,
     message: str,
     current_sql_id: int | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> Iterator[str]:
     user_email = conversation.user_email
     message = message.strip()
@@ -174,7 +171,9 @@ def stream_conversation_turn(
         "cross_sql_rewrite",
         "generate_sql",
     ):
-        result = run_conversation_turn(db, conversation, message, current_sql_id)
+        result = run_conversation_turn(
+            db, conversation, message, current_sql_id, library_scope
+        )
         yield _sse_payload({"event": "result", **result})
         yield "data: [DONE]\n\n"
         return
@@ -188,7 +187,7 @@ def stream_conversation_turn(
         if not is_llm_configured():
             raise LlmError("未配置 LLM API Key")
         context = agent_service._build_free_chat_context(
-            db, user_email, message, sql_id
+            db, user_email, message, sql_id, library_scope
         )
         msgs = _history_for_llm(db, conversation.id)
         msgs[0] = {"role": "system", "content": agent_service.FREE_CHAT_SYSTEM_PROMPT}

@@ -15,7 +15,6 @@ import { useAuth } from '../context/AuthContext';
 import type { SqlFileDetail } from '../types/sqlFile';
 import LocalBridgeSetupModal from './LocalBridgeSetupModal';
 import SqlCodeBlock from './SqlCodeBlock';
-
 const { Title, Paragraph, Text } = Typography;
 
 const START_ALIASES = new Set([

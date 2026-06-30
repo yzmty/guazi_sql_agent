@@ -11,8 +11,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import agent, auth, conversations, execute, sql_files
-from app.config import BACKEND_ROOT, CORS_ORIGINS, DATABASE_PATH, DATABASE_URL
+from app.api import agent, auth, conversations, execute, shared_group, sql_files
+from app.config import (
+    BACKEND_ROOT,
+    CORS_ORIGINS,
+    DATABASE_PATH,
+    DATABASE_URL,
+    EMBEDDING_PROVIDER,
+    INDEXING_WORKER_ENABLED,
+    SHARED_VECTOR_NAMESPACE,
+    VECTOR_STORE_TYPE,
+)
 from app.database import SessionLocal, init_db
 from app.models.sql_file import SqlFile
 
@@ -40,6 +49,14 @@ async def lifespan(app: FastAPI):
         restored_from_cos = restore_sqlite_from_cos()
 
     init_db()
+
+    from app.services.shared_group_service import ensure_default_group
+
+    db_boot = SessionLocal()
+    try:
+        ensure_default_group(db_boot)
+    finally:
+        db_boot.close()
 
     db = SessionLocal()
     sql_count = 0
@@ -87,6 +104,9 @@ async def lifespan(app: FastAPI):
     if INDEXING_WORKER_ENABLED:
         from app.services.indexing_service import enqueue_index_job
 
+        from app.models.shared_sql_file import SharedSqlFile
+        from app.services.shared_indexing_service import enqueue_shared_index_job
+
         db_boot = SessionLocal()
         try:
             stale = (
@@ -96,9 +116,17 @@ async def lifespan(app: FastAPI):
             )
             for row in stale:
                 enqueue_index_job(db_boot, row.user_email, row.id, "upsert")
+            shared_stale = (
+                db_boot.query(SharedSqlFile)
+                .filter(SharedSqlFile.index_status.in_(["pending", "failed"]))
+                .all()
+            )
+            for row in shared_stale:
+                enqueue_shared_index_job(db_boot, row.id, "upsert")
             db_boot.commit()
-            if stale:
-                logger.info("Enqueued %s SQL files for vector indexing", len(stale))
+            total = len(stale) + len(shared_stale)
+            if total:
+                logger.info("Enqueued %s SQL files for vector indexing", total)
         finally:
             db_boot.close()
 
@@ -146,6 +174,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(shared_group.router)
 app.include_router(auth.router)
 app.include_router(sql_files.router)
 app.include_router(agent.router)
@@ -168,8 +197,7 @@ def health_check():
     from app.services.cos_db_service import get_cos_storage_status
 
     storage.update(get_cos_storage_status())
-    from app.config import INDEXING_WORKER_ENABLED, VECTOR_STORE_TYPE, EMBEDDING_PROVIDER
-
+    storage["shared_vector_namespace"] = SHARED_VECTOR_NAMESPACE
     storage["vector_store"] = VECTOR_STORE_TYPE
     storage["embedding_provider"] = EMBEDDING_PROVIDER
     storage["indexing_worker"] = INDEXING_WORKER_ENABLED

@@ -1,10 +1,12 @@
 /** Top toolbar: search, filters, upload, admin switch. */
 
-import { LogoutOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
-import { Button, Input, Select, Space, Typography } from 'antd';
+import { LogoutOutlined, SearchOutlined, TeamOutlined, UploadOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, Segmented, Select, Space, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { listUsers } from '../api/auth';
+import type { LibraryScope } from '../api/sharedGroup';
 import { useAuth } from '../context/AuthContext';
+import AiDisclaimerNotice from './AiDisclaimerNotice';
 import type { FilterOptions, SearchFilters } from '../types/sqlFile';
 
 const { Title, Text } = Typography;
@@ -15,6 +17,13 @@ interface SearchToolbarProps {
   onFiltersChange: (patch: Partial<SearchFilters>) => void;
   onSearch: () => void;
   onUpload: () => void;
+  libraryMode: LibraryScope;
+  onLibraryModeChange: (mode: LibraryScope) => void;
+  sharedAccessBlocked?: boolean;
+  sharedPending?: boolean;
+  onJoinSharedGroup?: () => void;
+  onManageMembers?: () => void;
+  isSharedOwner?: boolean;
 }
 
 export default function SearchToolbar({
@@ -23,6 +32,13 @@ export default function SearchToolbar({
   onFiltersChange,
   onSearch,
   onUpload,
+  libraryMode,
+  onLibraryModeChange,
+  sharedAccessBlocked,
+  sharedPending,
+  onJoinSharedGroup,
+  onManageMembers,
+  isSharedOwner,
 }: SearchToolbarProps) {
   const { user, logout, viewAs, setViewAsEmail } = useAuth();
   const [users, setUsers] = useState<string[]>([]);
@@ -36,12 +52,28 @@ export default function SearchToolbar({
   return (
     <div className="app-header">
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
-        <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>
-            Guazi SQL Data Agent
-          </Title>
-          <Space>
+        <div className="app-header-top-row">
+          <div className="app-title-stack">
+            <Title level={4} className="app-title-heading">
+              Guazi SQL Data Agent
+            </Title>
+            <AiDisclaimerNotice />
+          </div>
+          <Space wrap className="app-header-actions" size="small">
+            <Segmented
+              value={libraryMode}
+              onChange={(v) => onLibraryModeChange(v as LibraryScope)}
+              options={[
+                { label: '个人库', value: 'personal' },
+                { label: 'SQL 共享群', value: 'shared' },
+              ]}
+            />
             <Text type="secondary">{user?.email}</Text>
+            {isSharedOwner && libraryMode === 'shared' && (
+              <Button icon={<TeamOutlined />} onClick={onManageMembers}>
+                成员管理
+              </Button>
+            )}
             {user?.is_super_admin && (
               <Select
                 allowClear
@@ -54,13 +86,32 @@ export default function SearchToolbar({
               />
             )}
             <Button icon={<UploadOutlined />} type="primary" onClick={onUpload}>
-              导入 SQL
+              {libraryMode === 'shared' ? '上传共享 SQL' : '导入 SQL'}
             </Button>
             <Button icon={<LogoutOutlined />} onClick={() => logout()}>
               退出
             </Button>
           </Space>
-        </Space>
+        </div>
+
+        {libraryMode === 'shared' && sharedAccessBlocked && (
+          <Alert
+            type="warning"
+            showIcon
+            message={
+              sharedPending
+                ? '您的入群申请待群主审批，审批通过后可查看共享 SQL 并使用 Agent'
+                : '您尚未加入共享群，请先申请入群'
+            }
+            action={
+              !sharedPending ? (
+                <Button size="small" type="primary" onClick={onJoinSharedGroup}>
+                  申请入群
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
 
         <Space wrap style={{ width: '100%' }}>
           <Input.Search

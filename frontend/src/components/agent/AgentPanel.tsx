@@ -28,8 +28,10 @@ const { TextArea } = Input;
 interface AgentPanelProps {
   currentSqlId: number | null;
   currentSqlName: string | null;
+  libraryScope?: 'personal' | 'shared';
   onViewSqlDetail: (sqlId: number) => void;
   actionTrigger?: { mode: AgentMode; ts: number } | null;
+  disabled?: boolean;
 }
 
 function newId() {
@@ -57,8 +59,10 @@ function recordToAgentMessage(rec: {
 export default function AgentPanel({
   currentSqlId,
   currentSqlName,
+  libraryScope = 'personal',
   onViewSqlDetail,
   actionTrigger,
+  disabled = false,
 }: AgentPanelProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -147,7 +151,7 @@ export default function AgentPanel({
 
   const sendMessage = async (text: string, mode?: AgentMode) => {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || disabled) return;
 
     appendMessage({
       id: newId(),
@@ -174,7 +178,7 @@ export default function AgentPanel({
           createdAt: new Date().toISOString(),
         });
         const placeholderId = streamPlaceholderId;
-        await conversationChatStream(convId, trimmed, currentSqlId, {
+        await conversationChatStream(convId, trimmed, currentSqlId, libraryScope, {
           onToken: (token) => {
             setMessages((prev) =>
               prev.map((m) =>
@@ -253,7 +257,7 @@ export default function AgentPanel({
           },
         });
       } else {
-        const resp = await conversationChat(convId, trimmed, currentSqlId);
+        const resp = await conversationChat(convId, trimmed, currentSqlId, libraryScope);
         handleResponse(resp);
       }
       await refreshConversations();
@@ -340,8 +344,13 @@ export default function AgentPanel({
           )}
         </Space>
         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-          当前上下文：{currentSqlName || '无'} · 语义检索 + 多轮对话
+          当前上下文：{currentSqlName || '无'} · {libraryScope === 'shared' ? '共享群' : '个人库'} · 语义检索 + 多轮对话
         </Text>
+        {disabled && (
+          <Text type="warning" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+            请先加入共享群并通过审批后，方可使用 Agent 检索共享 SQL。
+          </Text>
+        )}
         <Space wrap style={{ marginTop: 8, width: '100%' }}>
           <Select
             size="small"
@@ -413,7 +422,7 @@ export default function AgentPanel({
             <Button
               key={action.label}
               size="small"
-              disabled={Boolean(action.need && !currentSqlId)}
+              disabled={disabled || Boolean(action.need && !currentSqlId)}
               onClick={() => {
                 if (action.mode) {
                   void runDirectAction(action.mode, action.text);
@@ -441,6 +450,7 @@ export default function AgentPanel({
             placeholder="输入问题，可连续追问..."
             autoSize={{ minRows: 3, maxRows: 6 }}
             className="agent-textarea"
+            disabled={disabled}
             onPressEnter={(e) => {
               if (!e.shiftKey) {
                 e.preventDefault();
@@ -452,6 +462,7 @@ export default function AgentPanel({
             type="primary"
             icon={<SendOutlined />}
             loading={loading}
+            disabled={disabled}
             onClick={() => void sendMessage(input)}
             style={{ height: 'auto' }}
           >

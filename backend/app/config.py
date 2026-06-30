@@ -107,3 +107,7 @@ TENCENT_VECTORDB_COLLECTION = os.getenv("TENCENT_VECTORDB_COLLECTION", "sql_chun
 
 # LangChain agent
 AGENT_CONVERSATION_HISTORY_LIMIT = int(os.getenv("AGENT_CONVERSATION_HISTORY_LIMIT", "20"))
+
+# Shared SQL group — vector chunks use this namespace; owner is super admin
+SHARED_VECTOR_NAMESPACE = "__shared_group__"
+SHARED_GROUP_NAME = os.getenv("SHARED_GROUP_NAME", "SQL 共享群")

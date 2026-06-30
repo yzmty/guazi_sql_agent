@@ -34,6 +34,7 @@ def agent_chat(
         current_sql_id=body.current_sql_id,
         mode_override=body.mode,
         user_email=user.owner_email,
+        library_scope=body.library_scope,
     )
     return AgentChatResponse(**result)
 
@@ -45,7 +46,9 @@ def agent_explain(
     db: Session = Depends(get_db),
 ) -> AgentChatResponse:
     try:
-        data = agent_service.explain_sql(db, body.sql_id, user_email=user.owner_email)
+        data = agent_service.explain_sql(
+            db, body.sql_id, user_email=user.owner_email, library_scope=body.library_scope
+        )
         return AgentChatResponse(success=True, mode="explain_sql", data=data)
     except ValueError as exc:
         return AgentChatResponse(
@@ -61,7 +64,7 @@ def agent_recommend(
 ) -> AgentChatResponse:
     try:
         data = agent_service.recommend_similar_sql(
-            db, body.sql_id, user_email=user.owner_email
+            db, body.sql_id, user_email=user.owner_email, library_scope=body.library_scope
         )
         return AgentChatResponse(
             success=True, mode="recommend_similar_sql", data=data
@@ -83,11 +86,19 @@ def agent_rewrite(
             body.instruction, body.sql_id
         ):
             data = cross_sql_rewrite(
-                db, body.sql_id, body.instruction, user_email=user.owner_email
+                db,
+                body.sql_id,
+                body.instruction,
+                user_email=user.owner_email,
+                library_scope=body.library_scope,
             )
             return AgentChatResponse(success=True, mode="cross_sql_rewrite", data=data)
         data = agent_service.rewrite_sql(
-            db, body.sql_id, body.instruction, user_email=user.owner_email
+            db,
+            body.sql_id,
+            body.instruction,
+            user_email=user.owner_email,
+            library_scope=body.library_scope,
         )
         return AgentChatResponse(success=True, mode="rewrite_sql", data=data)
     except Exception as exc:
@@ -111,7 +122,11 @@ def agent_cross_sql_rewrite(
 ) -> AgentChatResponse:
     try:
         data = cross_sql_rewrite(
-            db, body.sql_id, body.instruction, user_email=user.owner_email
+            db,
+            body.sql_id,
+            body.instruction,
+            user_email=user.owner_email,
+            library_scope=body.library_scope,
         )
         return AgentChatResponse(success=True, mode="cross_sql_rewrite", data=data)
     except Exception as exc:
@@ -127,7 +142,12 @@ def agent_generate_sql(
     db: Session = Depends(get_db),
 ) -> AgentChatResponse:
     try:
-        data = generate_sql(db, body.instruction, user_email=user.owner_email)
+        data = generate_sql(
+            db,
+            body.instruction,
+            user_email=user.owner_email,
+            library_scope=body.library_scope,
+        )
         return AgentChatResponse(success=True, mode="generate_sql", data=data)
     except Exception as exc:
         return AgentChatResponse(

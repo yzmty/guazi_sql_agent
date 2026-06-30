@@ -17,6 +17,7 @@ interface LeftSqlPanelProps {
   onToggleCollapse: () => void;
   onSelect: (item: SqlFileListItem) => void;
   hasSearched: boolean;
+  title?: string;
 }
 
 export default function LeftSqlPanel({
@@ -28,6 +29,7 @@ export default function LeftSqlPanel({
   onToggleCollapse,
   onSelect,
   hasSearched,
+  title,
 }: LeftSqlPanelProps) {
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
@@ -68,7 +70,7 @@ export default function LeftSqlPanel({
     <div className="panel-left">
       <div className="panel-header-bar panel-header-bar-flex">
         <span>
-          共 {total} 条 · 本页 {pageItems.length} 条
+          {title ? `${title} · ` : ''}共 {total} 条 · 本页 {pageItems.length} 条
         </span>
         <Tooltip title="折叠列表">
           <Button

@@ -38,6 +38,7 @@ class ConversationChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     current_sql_id: int | None = None
     stream: bool = False
+    library_scope: str = "personal"
 
 
 @router.get("")
@@ -129,7 +130,7 @@ def conversation_chat(
     if body.stream:
         return StreamingResponse(
             stream_conversation_turn(
-                db, conv, body.message, body.current_sql_id
+                db, conv, body.message, body.current_sql_id, body.library_scope
             ),
             media_type="text/event-stream",
             headers={
@@ -139,5 +140,7 @@ def conversation_chat(
             },
         )
 
-    result = run_conversation_turn(db, conv, body.message, body.current_sql_id)
+    result = run_conversation_turn(
+        db, conv, body.message, body.current_sql_id, body.library_scope
+    )
     return result

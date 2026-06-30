@@ -96,7 +96,14 @@ def dispose_engine() -> None:
 
 
 def init_db() -> None:
-    from app.models import auth_session, conversation, indexing_job, sql_file  # noqa: F401
+    from app.models import (  # noqa: F401
+        auth_session,
+        conversation,
+        indexing_job,
+        shared_group,
+        shared_sql_file,
+        sql_file,
+    )
     from app.migrate_sql_files import migrate_sql_files_table
 
     Base.metadata.create_all(bind=engine)

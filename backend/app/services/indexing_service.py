@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.models.indexing_job import IndexingJob
+from app.config import SHARED_VECTOR_NAMESPACE
 from app.models.sql_file import SqlFile
 from app.services.cos_db_service import schedule_backup_sqlite_to_cos
 from app.services.embedding_service import embed_texts
@@ -147,6 +148,47 @@ def process_index_job(db: Session, job: IndexingJob) -> None:
         if not job.sql_file_id:
             raise ValueError("upsert job missing sql_file_id")
 
+        from app.models.shared_sql_file import SharedSqlFile
+        from app.services.shared_indexing_service import build_shared_sql_documents
+
+        if job.user_email == SHARED_VECTOR_NAMESPACE:
+            t0 = time.perf_counter()
+            record = (
+                db.query(SharedSqlFile)
+                .filter(SharedSqlFile.id == job.sql_file_id)
+                .first()
+            )
+            phases_ms["load_record"] = (time.perf_counter() - t0) * 1000
+            if not record:
+                job.status = "done"
+                job.error_message = "record deleted"
+                return
+            t0 = time.perf_counter()
+            chunks = build_shared_sql_documents(record)
+            store.delete_by_sql_file(job.user_email, record.id)
+            phases_ms["build_and_delete"] = (time.perf_counter() - t0) * 1000
+            if not chunks:
+                record.index_status = "ready"
+                record.index_error = None
+                record.indexed_at = datetime.utcnow()
+                job.status = "done"
+                return
+            ids = [c[0] for c in chunks]
+            docs = [c[1] for c in chunks]
+            metas = [c[2] for c in chunks]
+            t0 = time.perf_counter()
+            vectors = embed_texts(docs)
+            phases_ms["embed"] = (time.perf_counter() - t0) * 1000
+            t0 = time.perf_counter()
+            store.upsert(ids, vectors, docs, metas)
+            phases_ms["upsert"] = (time.perf_counter() - t0) * 1000
+            record.index_status = "ready"
+            record.index_error = None
+            record.indexed_at = datetime.utcnow()
+            job.status = "done"
+            job.error_message = None
+            return
+
         t0 = time.perf_counter()
         record = (
             db.query(SqlFile)
@@ -193,11 +235,20 @@ def process_index_job(db: Session, job: IndexingJob) -> None:
         job.status = "failed"
         job.error_message = str(exc)[:500]
         if job.sql_file_id:
-            record = (
-                db.query(SqlFile)
-                .filter(SqlFile.id == job.sql_file_id)
-                .first()
-            )
+            if job.user_email == SHARED_VECTOR_NAMESPACE:
+                from app.models.shared_sql_file import SharedSqlFile
+
+                record = (
+                    db.query(SharedSqlFile)
+                    .filter(SharedSqlFile.id == job.sql_file_id)
+                    .first()
+                )
+            else:
+                record = (
+                    db.query(SqlFile)
+                    .filter(SqlFile.id == job.sql_file_id)
+                    .first()
+                )
             if record:
                 record.index_status = "failed"
                 record.index_error = job.error_message

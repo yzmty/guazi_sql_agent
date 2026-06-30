@@ -11,8 +11,12 @@ from app.config import AGENT_CANDIDATE_TOP_K, CROSS_SQL_CANDIDATE_TOP_N
 from app.models.sql_file import SqlFile
 from app.services.llm_service import LlmError, LlmNotConfiguredError, chat_json, is_llm_configured
 from app.services.prompt_service import SYSTEM_PROMPT, build_generate_sql_prompt
+from app.services.library_scope_service import (
+    LibraryScope,
+    record_to_context,
+    semantic_search_scoped,
+)
 from app.services.retrieval_service import record_to_full_context
-from app.services.semantic_search_service import semantic_search_sql
 from app.utils.sql_join_extractor import extract_grain_hints, extract_join_fragments
 
 logger = logging.getLogger(__name__)
@@ -59,16 +63,17 @@ def is_generate_sql_request(message: str) -> bool:
     return any(kw in lower or kw in text for kw in _GENERATE_KEYWORDS)
 
 
-def _prepare_reference_context(record: SqlFile, score: float) -> dict:
-    ctx = record_to_full_context(record)
-    joins = extract_join_fragments(record.sql_content or "")
-    grain = extract_grain_hints(record.sql_content or "")
+def _prepare_reference_context(record, score: float, scope: LibraryScope = "personal") -> dict:
+    ctx = record_to_context(record, scope)
+    sql_content = ctx.get("sql_content") or ""
+    joins = extract_join_fragments(sql_content)
+    grain = extract_grain_hints(sql_content)
     return {
         **ctx,
         "retrieval_score": round(score, 3),
         "join_fragments": joins[:8],
         "grain_hints": grain,
-        "sql_preview": (record.sql_content or "")[:2500],
+        "sql_preview": sql_content[:2500],
     }
 
 
@@ -76,6 +81,7 @@ def generate_sql(
     db: Session,
     instruction: str,
     user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> dict:
     """
     Retrieve related SQLs from library and synthesize a new SQL draft.
@@ -87,12 +93,13 @@ def generate_sql(
         )
 
     instruction = instruction.strip()
-    candidates = semantic_search_sql(
-        db, instruction, user_email or "", top_k=AGENT_CANDIDATE_TOP_K
+    candidates = semantic_search_scoped(
+        db, instruction, user_email or "", scope=library_scope, top_k=AGENT_CANDIDATE_TOP_K
     )[:CROSS_SQL_CANDIDATE_TOP_N]
 
     reference_contexts = [
-        _prepare_reference_context(record, score) for record, score in candidates
+        _prepare_reference_context(record, score, library_scope)
+        for record, score in candidates
     ]
 
     if not reference_contexts:

@@ -6,7 +6,6 @@ import re
 from sqlalchemy.orm import Session
 
 from app.config import AGENT_CANDIDATE_TOP_K, AGENT_RESULT_TOP_N
-from app.models.sql_file import SqlFile
 from app.services.llm_service import LlmError, LlmNotConfiguredError, chat_json, is_llm_configured
 from app.services.prompt_service import (
     SYSTEM_PROMPT,
@@ -15,15 +14,17 @@ from app.services.prompt_service import (
     build_recommend_sql_prompt,
     build_rewrite_sql_prompt,
 )
-from app.services.retrieval_service import (
-    candidates_to_summaries,
-    get_similar_candidates,
-    record_to_full_context,
-    search_candidates,
+from app.services.library_scope_service import (
+    LibraryScope,
+    candidates_to_summaries_scoped,
+    enrich_find_results,
+    get_similar_scoped,
+    record_to_context,
+    resolve_sql_record,
+    semantic_search_scoped,
 )
 from app.services.cross_sql_rewrite_service import cross_sql_rewrite, extract_target_dimension
 from app.services.generate_sql_service import generate_sql, is_generate_sql_request
-from app.services.search_service import get_sql_file_by_id
 from app.utils.text_utils import parse_json_list
 
 logger = logging.getLogger(__name__)
@@ -133,29 +134,20 @@ def _needs_sql_context(mode: AgentMode) -> bool:
     return mode in ("explain_sql", "recommend_similar_sql", "rewrite_sql", "cross_sql_rewrite")
 
 
-def _enrich_results(db: Session, results: list[dict]) -> list[dict]:
-    """Attach business/scene from DB for frontend cards."""
-    enriched = []
-    for item in results:
-        sql_id = item.get("sql_id")
-        record = get_sql_file_by_id(db, sql_id) if sql_id else None
-        enriched.append(
-            {
-                **item,
-                "business": record.business if record else item.get("business", ""),
-                "scene": record.scene if record else item.get("scene", ""),
-            }
-        )
-    return enriched
+def _enrich_results(
+    db: Session, results: list[dict], scope: LibraryScope = "personal"
+) -> list[dict]:
+    return enrich_find_results(db, results, scope)
 
 
 def _fallback_find_sql(
     question: str,
-    candidates: list[tuple[SqlFile, float]],
+    candidates: list,
     *,
+    scope: LibraryScope = "personal",
     llm_error: str | None = None,
 ) -> dict:
-    summaries = candidates_to_summaries(candidates[:AGENT_RESULT_TOP_N])
+    summaries = candidates_to_summaries_scoped(candidates[:AGENT_RESULT_TOP_N], scope)
     results = [
         {
             "sql_id": s["id"],
@@ -163,6 +155,7 @@ def _fallback_find_sql(
             "reason": f"检索命中：业务「{s['business'][:30]}」，场景与「{question[:20]}」相关",
             "business": s["business"],
             "scene": s["scene"],
+            "scope": scope,
         }
         for s in summaries
     ]
@@ -186,8 +179,8 @@ def _fallback_find_sql(
     }
 
 
-def _fallback_explain_sql(record: SqlFile) -> dict:
-    ctx = record_to_full_context(record)
+def _fallback_explain_sql(record, scope: LibraryScope = "personal") -> dict:
+    ctx = record_to_context(record, scope)
     return {
         "mode": "explain_sql",
         "sql_id": record.id,
@@ -207,7 +200,7 @@ def _fallback_explain_sql(record: SqlFile) -> dict:
     }
 
 
-def _fallback_recommend(source: SqlFile, candidates: list[tuple[SqlFile, float]]) -> dict:
+def _fallback_recommend(source, candidates: list, scope: LibraryScope = "personal") -> dict:
     results = []
     source_tags = set(parse_json_list(source.tags_json))
     source_tables = set(parse_json_list(source.core_tables_json))
@@ -232,6 +225,7 @@ def _fallback_recommend(source: SqlFile, candidates: list[tuple[SqlFile, float]]
                 "reason": "；".join(reasons) if reasons else f"元数据相似度 {score:.0f}",
                 "business": record.business,
                 "scene": record.scene,
+                "scope": scope,
             }
         )
 
@@ -253,16 +247,25 @@ def _clean_find_query(question: str) -> str:
     return q.strip() or question.strip()
 
 
-def find_sql(db: Session, question: str, user_email: str | None = None) -> dict:
+def find_sql(
+    db: Session,
+    question: str,
+    user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
+) -> dict:
     """Natural language SQL search: semantic retrieval + LLM rerank."""
     query = _clean_find_query(question)
 
-    from app.services.semantic_search_service import semantic_search_sql
-
-    candidates = semantic_search_sql(db, query, user_email or "", top_k=AGENT_CANDIDATE_TOP_K)
+    candidates = semantic_search_scoped(
+        db, query, user_email or "", scope=library_scope, top_k=AGENT_CANDIDATE_TOP_K
+    )
     if not candidates and query != question.strip():
-        candidates = semantic_search_sql(
-            db, question.strip(), user_email or "", top_k=AGENT_CANDIDATE_TOP_K
+        candidates = semantic_search_scoped(
+            db,
+            question.strip(),
+            user_email or "",
+            scope=library_scope,
+            top_k=AGENT_CANDIDATE_TOP_K,
         )
     if not candidates:
         return {
@@ -275,43 +278,60 @@ def find_sql(db: Session, question: str, user_email: str | None = None) -> dict:
     llm_error: str | None = None
     if is_llm_configured():
         try:
-            summaries = candidates_to_summaries(candidates)
+            summaries = candidates_to_summaries_scoped(candidates, library_scope)
             prompt = build_find_sql_prompt(question, summaries)
             result = chat_json(prompt, system=SYSTEM_PROMPT)
-            result["results"] = _enrich_results(db, result.get("results", []))
+            result["results"] = _enrich_results(
+                db, result.get("results", []), library_scope
+            )
             result["llm_used"] = True
             return result
         except LlmError as exc:
             llm_error = str(exc)
             logger.warning("LLM find_sql failed, using fallback: %s", exc)
 
-    return _fallback_find_sql(question, candidates, llm_error=llm_error)
+    return _fallback_find_sql(question, candidates, scope=library_scope, llm_error=llm_error)
 
 
-def explain_sql(db: Session, sql_id: int, user_email: str | None = None) -> dict:
-    record = get_sql_file_by_id(db, sql_id, user_email=user_email)
+def explain_sql(
+    db: Session,
+    sql_id: int,
+    user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
+) -> dict:
+    record = resolve_sql_record(db, sql_id, user_email or "", library_scope)
     if not record:
         raise ValueError(f"SQL id={sql_id} 不存在")
 
     if is_llm_configured():
         try:
-            ctx = record_to_full_context(record)
+            ctx = record_to_context(record, library_scope)
             prompt = build_explain_sql_prompt(ctx)
             result = chat_json(prompt, system=SYSTEM_PROMPT)
             result["llm_used"] = True
+            result["scope"] = library_scope
             return result
         except LlmError as exc:
             logger.warning("LLM explain_sql failed, using fallback: %s", exc)
 
-    return _fallback_explain_sql(record)
+    data = _fallback_explain_sql(record, library_scope)
+    data["scope"] = library_scope
+    return data
 
 
-def recommend_similar_sql(db: Session, sql_id: int, user_email: str | None = None) -> dict:
-    record = get_sql_file_by_id(db, sql_id, user_email=user_email)
+def recommend_similar_sql(
+    db: Session,
+    sql_id: int,
+    user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
+) -> dict:
+    record = resolve_sql_record(db, sql_id, user_email or "", library_scope)
     if not record:
         raise ValueError(f"SQL id={sql_id} 不存在")
 
-    candidates = get_similar_candidates(db, sql_id, top_k=AGENT_CANDIDATE_TOP_K, user_email=user_email)
+    candidates = get_similar_scoped(
+        db, sql_id, user_email or "", scope=library_scope, top_k=AGENT_CANDIDATE_TOP_K
+    )
     if not candidates:
         return {
             "mode": "recommend_similar_sql",
@@ -323,41 +343,51 @@ def recommend_similar_sql(db: Session, sql_id: int, user_email: str | None = Non
 
     if is_llm_configured():
         try:
-            source_ctx = record_to_full_context(record)
-            cand_summaries = candidates_to_summaries(candidates)
+            source_ctx = record_to_context(record, library_scope)
+            cand_summaries = candidates_to_summaries_scoped(candidates, library_scope)
             prompt = build_recommend_sql_prompt(source_ctx, cand_summaries)
             result = chat_json(prompt, system=SYSTEM_PROMPT)
-            result["results"] = _enrich_results(db, result.get("results", []))
+            result["results"] = _enrich_results(
+                db, result.get("results", []), library_scope
+            )
+            result["scope"] = library_scope
             result["llm_used"] = True
             return result
         except LlmError as exc:
             logger.warning("LLM recommend failed, using fallback: %s", exc)
 
-    return _fallback_recommend(record, candidates)
+    data = _fallback_recommend(record, candidates, library_scope)
+    data["scope"] = library_scope
+    return data
 
 
 def _build_free_chat_context(
-    db: Session, user_email: str, message: str, sql_id: int | None
+    db: Session,
+    user_email: str,
+    message: str,
+    sql_id: int | None,
+    library_scope: LibraryScope = "personal",
 ) -> str:
     import json
 
-    from app.services.semantic_search_service import semantic_search_sql
-
     parts: list[str] = []
     if sql_id:
-        record = get_sql_file_by_id(db, sql_id, user_email=user_email)
+        record = resolve_sql_record(db, sql_id, user_email, library_scope)
         if record:
-            ctx = record_to_full_context(record)
+            ctx = record_to_context(record, library_scope)
+            sql_text = ctx.get("sql_content") or ""
             parts.append(
-                f"当前选中 SQL: id={record.id}, 文件={record.file_name}\n"
+                f"当前选中 SQL: id={record.id}, 文件={record.file_name}, 来源={library_scope}\n"
                 f"业务={record.business}, 场景={record.scene}\n"
                 f"指标={ctx['metrics']}, 维度={ctx['dimensions']}\n"
-                f"SQL片段:\n{(record.sql_content or '')[:2000]}"
+                f"SQL片段:\n{sql_text[:2000]}"
             )
 
-    candidates = semantic_search_sql(db, message, user_email, top_k=8)
+    candidates = semantic_search_scoped(
+        db, message, user_email, scope=library_scope, top_k=8
+    )
     if candidates:
-        summaries = candidates_to_summaries(candidates)
+        summaries = candidates_to_summaries_scoped(candidates, library_scope)
         parts.append(
             "语义检索候选 SQL:\n" + json.dumps(summaries, ensure_ascii=False, indent=2)
         )
@@ -369,6 +399,7 @@ def free_chat(
     message: str,
     user_email: str | None = None,
     current_sql_id: int | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> dict:
     """Free-form multi-turn chat with optional SQL library context."""
     from app.services.llm_service import chat_messages
@@ -378,7 +409,9 @@ def free_chat(
             "自由对话需要配置 LLM API Key。请在 backend/.env 中设置 LLM_API_KEY 后重试。"
         )
 
-    context = _build_free_chat_context(db, user_email or "", message, current_sql_id)
+    context = _build_free_chat_context(
+        db, user_email or "", message, current_sql_id, library_scope
+    )
     user_content = f"上下文:\n{context}\n\n用户问题: {message}" if context else message
     text = chat_messages(
         [
@@ -389,8 +422,14 @@ def free_chat(
     return {"mode": "chat", "summary": text, "llm_used": True}
 
 
-def rewrite_sql(db: Session, sql_id: int, instruction: str, user_email: str | None = None) -> dict:
-    record = get_sql_file_by_id(db, sql_id, user_email=user_email)
+def rewrite_sql(
+    db: Session,
+    sql_id: int,
+    instruction: str,
+    user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
+) -> dict:
+    record = resolve_sql_record(db, sql_id, user_email or "", library_scope)
     if not record:
         raise ValueError(f"SQL id={sql_id} 不存在")
 
@@ -399,13 +438,13 @@ def rewrite_sql(db: Session, sql_id: int, instruction: str, user_email: str | No
             "改写 SQL 需要配置 LLM API Key。请在 backend/.env 中设置 LLM_API_KEY 后重试。"
         )
 
-    ctx = record_to_full_context(record)
+    ctx = record_to_context(record, library_scope)
     prompt = build_rewrite_sql_prompt(ctx, instruction)
     result = chat_json(prompt, system=SYSTEM_PROMPT)
     result["llm_used"] = True
     result["is_draft"] = True
+    result["scope"] = library_scope
     result["warning"] = "这是 AI 生成的 SQL 草稿，不会覆盖原始 SQL 文件，请执行前自行校验。"
-    # Safety: ensure we never include write-back instructions
     return result
 
 
@@ -415,6 +454,7 @@ def chat(
     current_sql_id: int | None = None,
     mode_override: str | None = None,
     user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> dict:
     """
     Unified Agent chat entry — detect mode and dispatch.
@@ -447,21 +487,51 @@ def chat(
 
     try:
         if mode == "find_sql":
-            data = find_sql(db, message, user_email=user_email)
+            data = find_sql(db, message, user_email=user_email, library_scope=library_scope)
         elif mode == "explain_sql":
-            data = explain_sql(db, current_sql_id, user_email=user_email)  # type: ignore[arg-type]
+            data = explain_sql(
+                db, current_sql_id, user_email=user_email, library_scope=library_scope
+            )  # type: ignore[arg-type]
         elif mode == "recommend_similar_sql":
-            data = recommend_similar_sql(db, current_sql_id, user_email=user_email)  # type: ignore[arg-type]
+            data = recommend_similar_sql(
+                db, current_sql_id, user_email=user_email, library_scope=library_scope
+            )  # type: ignore[arg-type]
         elif mode == "rewrite_sql":
-            data = rewrite_sql(db, current_sql_id, message, user_email=user_email)  # type: ignore[arg-type]
+            data = rewrite_sql(
+                db,
+                current_sql_id,
+                message,
+                user_email=user_email,
+                library_scope=library_scope,
+            )  # type: ignore[arg-type]
         elif mode == "cross_sql_rewrite":
-            data = cross_sql_rewrite(db, current_sql_id, message, user_email=user_email)  # type: ignore[arg-type]
+            data = cross_sql_rewrite(
+                db,
+                current_sql_id,
+                message,
+                user_email=user_email,
+                library_scope=library_scope,
+            )  # type: ignore[arg-type]
         elif mode == "generate_sql":
-            data = generate_sql(db, message, user_email=user_email)
+            data = generate_sql(
+                db, message, user_email=user_email, library_scope=library_scope
+            )
         elif mode == "chat":
-            data = free_chat(db, message, user_email=user_email, current_sql_id=current_sql_id)
+            data = free_chat(
+                db,
+                message,
+                user_email=user_email,
+                current_sql_id=current_sql_id,
+                library_scope=library_scope,
+            )
         else:
-            data = free_chat(db, message, user_email=user_email, current_sql_id=current_sql_id)
+            data = free_chat(
+                db,
+                message,
+                user_email=user_email,
+                current_sql_id=current_sql_id,
+                library_scope=library_scope,
+            )
             mode = "chat"
 
         return {"success": True, "mode": mode, "data": data}

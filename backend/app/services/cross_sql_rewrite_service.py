@@ -16,9 +16,14 @@ from app.services.dimension_stats_service import (
 )
 from app.services.llm_service import LlmError, LlmNotConfiguredError, chat_json, is_llm_configured
 from app.services.prompt_service import SYSTEM_PROMPT, build_cross_sql_rewrite_prompt
+from app.services.library_scope_service import (
+    LibraryScope,
+    record_to_context,
+    resolve_sql_record,
+    semantic_search_scoped,
+)
 from app.services.retrieval_service import record_to_full_context
 from app.services.search_service import get_sql_file_by_id
-from app.services.semantic_search_service import semantic_search_sql
 from app.utils.sql_join_extractor import extract_grain_hints, extract_join_fragments
 from app.utils.text_utils import parse_json_list
 
@@ -83,13 +88,15 @@ def _build_search_query(dimension: str | None, instruction: str) -> str:
 
 def _prepare_candidate_context(
     db: Session,
-    record: SqlFile,
+    record,
     score: float,
     dimension: str | None,
+    library_scope: LibraryScope = "personal",
 ) -> dict:
-    ctx = record_to_full_context(record)
-    joins = extract_join_fragments(record.sql_content or "")
-    grain = extract_grain_hints(record.sql_content or "")
+    ctx = record_to_context(record, library_scope)
+    sql_content = ctx.get("sql_content") or ""
+    joins = extract_join_fragments(sql_content)
+    grain = extract_grain_hints(sql_content)
 
     relevant_joins = joins
     if dimension:
@@ -111,7 +118,7 @@ def _prepare_candidate_context(
         "join_fragments": relevant_joins[:8],
         "all_join_count": len(joins),
         "grain_hints": grain,
-        "sql_preview": (record.sql_content or "")[:2500],
+        "sql_preview": sql_content[:2500],
     }
 
 
@@ -193,6 +200,7 @@ def cross_sql_rewrite(
     sql_id: int,
     instruction: str,
     user_email: str | None = None,
+    library_scope: LibraryScope = "personal",
 ) -> dict:
     """
     Cross-SQL rewrite pipeline:
@@ -200,17 +208,17 @@ def cross_sql_rewrite(
     2. sqlglot/sqlparse JOIN extraction + co-occurrence stats
     3. LLM merge with attribution and risk notes
     """
-    record = get_sql_file_by_id(db, sql_id, user_email=user_email)
+    record = resolve_sql_record(db, sql_id, user_email or "", library_scope)
     if not record:
         raise ValueError(f"SQL id={sql_id} 不存在")
 
     dimension = extract_target_dimension(instruction)
     search_query = _build_search_query(dimension, instruction)
 
-    raw_candidates = semantic_search_sql(
-        db, search_query, user_email or "", top_k=AGENT_CANDIDATE_TOP_K
+    raw_candidates = semantic_search_scoped(
+        db, search_query, user_email or "", scope=library_scope, top_k=AGENT_CANDIDATE_TOP_K
     )
-    filtered: list[tuple[SqlFile, float]] = [
+    filtered: list[tuple] = [
         (r, s) for r, s in raw_candidates if r.id != sql_id
     ][:CROSS_SQL_CANDIDATE_TOP_N]
 
@@ -223,24 +231,24 @@ def cross_sql_rewrite(
         get_dimension_field_hints(db, dimension, user_email or "") if dimension else []
     )
 
-    source_ctx = record_to_full_context(record)
-    source_grain = extract_grain_hints(record.sql_content or "")
-    source_joins = extract_join_fragments(record.sql_content or "")
+    source_ctx = record_to_context(record, library_scope)
+    source_grain = extract_grain_hints((source_ctx.get("sql_content") or ""))
+    source_joins = extract_join_fragments((source_ctx.get("sql_content") or ""))
 
     candidate_contexts: list[dict] = []
     for cand_record, score in filtered:
-        ctx = _prepare_candidate_context(db, cand_record, score, dimension)
+        ctx = _prepare_candidate_context(db, cand_record, score, dimension, library_scope)
         ctx["grain_comparison"] = _compare_grain(source_grain, ctx.get("grain_hints") or {})
         candidate_contexts.append(ctx)
 
     if not candidate_contexts and dimension:
-        keyword_hits = semantic_search_sql(
-            db, dimension, user_email or "", top_k=AGENT_CANDIDATE_TOP_K
+        keyword_hits = semantic_search_scoped(
+            db, dimension, user_email or "", scope=library_scope, top_k=AGENT_CANDIDATE_TOP_K
         )
         for cand_record, score in keyword_hits:
             if cand_record.id == sql_id:
                 continue
-            ctx = _prepare_candidate_context(db, cand_record, score, dimension)
+            ctx = _prepare_candidate_context(db, cand_record, score, dimension, library_scope)
             ctx["grain_comparison"] = _compare_grain(source_grain, ctx.get("grain_hints") or {})
             candidate_contexts.append(ctx)
             if len(candidate_contexts) >= CROSS_SQL_CANDIDATE_TOP_N:
@@ -263,7 +271,7 @@ def cross_sql_rewrite(
             "risk_notes": [
                 "建议先用「找 SQL」搜索相关案例，或检查该维度是否已在其他 SQL 中使用",
             ],
-            "rewritten_sql": record.sql_content or "",
+            "rewritten_sql": source_ctx.get("sql_content") or "",
             "reference_sqls": [],
             "dimension_cooccurrence": cooccurrence,
             "dimension_field_hints": field_hints,

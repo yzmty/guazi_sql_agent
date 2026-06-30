@@ -1,5 +1,5 @@
 # 腾讯云 CloudBase 云托管 — FastAPI + 前端静态资源（单容器）
-ARG BUILD_REV=chat-generate-sql-v1
+ARG BUILD_REV=guazi-unified-v10
 FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./

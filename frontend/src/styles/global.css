@@ -191,6 +191,10 @@ body,
   overflow: auto;
 }
 
+.panel-center .ant-tabs-tabpane {
+  min-width: 0;
+}
+
 .login-page {
   min-height: 100vh;
   display: flex;
@@ -226,6 +230,8 @@ body,
 
 .detail-content {
   padding: 16px 20px 24px;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .sql-detail-header {
@@ -388,4 +394,110 @@ body,
 
 .agent-explain-section {
   margin-bottom: 8px;
+}
+
+.app-header-top-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.app-header-actions {
+  flex: 1;
+  display: flex !important;
+  justify-content: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding-top: 0;
+  margin-left: 0;
+}
+
+.app-title-stack {
+  --app-title-lh: 28px;
+  --app-disclaimer-h: 20px;
+  display: inline-grid;
+  grid-template-columns: max-content;
+  width: min-content;
+  max-width: 100%;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.app-title-heading {
+  margin: 0 !important;
+  line-height: var(--app-title-lh) !important;
+  font-size: 20px !important;
+  white-space: nowrap;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.ai-disclaimer-marquee {
+  grid-column: 1;
+  grid-row: 2;
+  width: 0;
+  min-width: 100%;
+  height: var(--app-disclaimer-h);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  border-radius: 3px;
+  background: rgba(255, 251, 230, 0.72);
+  box-sizing: border-box;
+}
+
+.ai-disclaimer-marquee__track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2rem;
+  height: 100%;
+  line-height: 1;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #8c8c8c;
+  animation: ai-disclaimer-scroll 18s linear infinite;
+  will-change: transform;
+}
+
+.ai-disclaimer-marquee__track span {
+  flex-shrink: 0;
+}
+
+@keyframes ai-disclaimer-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.ai-disclaimer-notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-disclaimer-icon {
+  color: #faad14;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.ai-disclaimer-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }

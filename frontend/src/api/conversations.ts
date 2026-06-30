@@ -76,11 +76,13 @@ export async function conversationChat(
   conversationId: number,
   message: string,
   currentSqlId?: number | null,
+  libraryScope: 'personal' | 'shared' = 'personal',
 ): Promise<AgentChatResponse & { mode?: AgentMode | 'chat' }> {
   const { data } = await apiClient.post<AgentChatResponse>(`/conversations/${conversationId}/chat`, {
     message,
     current_sql_id: currentSqlId ?? null,
     stream: false,
+    library_scope: libraryScope,
   });
   return data;
 }
@@ -107,6 +109,7 @@ export async function conversationChatStream(
   conversationId: number,
   message: string,
   currentSqlId: number | null | undefined,
+  libraryScope: 'personal' | 'shared',
   handlers: ConversationChatStreamHandlers,
 ): Promise<void> {
   const token = getToken();
@@ -120,6 +123,7 @@ export async function conversationChatStream(
       message,
       current_sql_id: currentSqlId ?? null,
       stream: true,
+      library_scope: libraryScope,
     }),
   });
   if (!resp.ok || !resp.body) {
